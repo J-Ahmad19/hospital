@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Enrollment - Hospital Schemes Monitoring{% endblock %}
+
+{% block content %}
+<section class="form-section">
+    <div class="form-container">
+        <h2>Edit Scheme Enrollment</h2>
+        <p class="form-subtitle">Update enrollment details for {{ enrollment.patient_name }}</p>
+
+        <form method="POST" class="patient-form">
+            <fieldset class="form-group">
+                <legend>Enrollment Information</legend>
+                <div class="form-field">
+                    <label>Patient Name</label>
+                    <input type="text" value="{{ enrollment.patient_name }}" disabled style="background-color: #e5e7eb; cursor: not-allowed;">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-field">
+                        <label for="scheme_id">Scheme *</label>
+                        <select id="scheme_id" name="scheme_id" required>
+                            {% for scheme in schemes %}
+                            <option value="{{ scheme.scheme_id }}" {% if scheme.scheme_id == enrollment.scheme_id %}selected{% endif %}>
+                                {{ scheme.sname }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="enroll_date">Enrollment Date *</label>
+                        <input type="date" id="enroll_date" name="enroll_date" value="{{ enrollment.enroll_date }}" required>
+                    </div>
+                </div>
+
+                <div class="form-field">
+                    <label for="amt_claimed">Amount Claimed (₹) *</label>
+                    <input type="number" id="amt_claimed" name="amt_claimed" step="0.01" min="0" value="{{ enrollment.amt_claimed }}" required>
+                </div>
+            </fieldset>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Update Enrollment</button>
+                <a href="{{ url_for('admin') }}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</section>
+{% endblock %}

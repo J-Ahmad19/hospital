@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - Hospital Schemes Monitoring{% endblock %}
+
+{% block content %}
+<div class="container-lg">
+    <section class="mb-5">
+        <div class="text-center mb-4">
+            <h2 class="fw-bold display-6">Admin Dashboard</h2>
+            <p class="text-muted">Analysis and monitoring of government health schemes</p>
+        </div>
+
+        <!-- Using Bootstrap grid for stats cards -->
+        <div class="row g-4 mb-5">
+            <div class="col-md-4">
+                <div class="card border-top border-primary border-3 h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <i class="bi bi-people fs-3 text-primary mb-2"></i>
+                        <h5 class="card-title">Total Patients</h5>
+                        <p class="fs-2 fw-bold text-primary">{{ total_patients }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-top border-info border-3 h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <i class="bi bi-clipboard2-data fs-3 text-info mb-2"></i>
+                        <h5 class="card-title">Active Schemes</h5>
+                        <p class="fs-2 fw-bold text-info">{{ total_schemes }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-top border-success border-3 h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <i class="bi bi-currency-rupee fs-3 text-success mb-2"></i>
+                        <h5 class="card-title">Total Amount Claimed</h5>
+                        <p class="fs-2 fw-bold text-success">₹{{ "%.2f"|format(total_claimed) }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scheme-wise Enrollment Analysis table with Bootstrap styling -->
+        <section class="mb-5">
+            <h4 class="fw-bold mb-3 pb-2 border-bottom border-primary">
+                <i class="bi bi-graph-up"></i> Scheme-wise Enrollment Analysis
+            </h4>
+            <div class="table-responsive">
+                <table class="table table-hover table-striped align-middle">
+                    <thead class="table-primary">
+                        <tr>
+                            <th><i class="bi bi-hash"></i> #</th>
+                            <th>Scheme Name</th>
+                            <th>Total Enrollments</th>
+                            <th>Total Amount Claimed (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for stat in scheme_stats %}
+                        <tr>
+                            <td><strong>{{ loop.index }}</strong></td>
+                            <td>{{ stat.sname }}</td>
+                            <td><span class="badge bg-primary">{{ stat.enrollment_count }}</span></td>
+                            <td><strong class="text-success">₹{{ "%.2f"|format(stat.total_amount or 0) }}</strong></td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted py-4">No data available</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+        </section>
+        
+        <!-- Recent Enrollments table with Bootstrap styling -->
+        <section class="mb-5">
+            <h4 class="fw-bold mb-3 pb-2 border-bottom border-primary">
+                <i class="bi bi-clock-history"></i> Recent Enrollments
+            </h4>
+            <div class="table-responsive">
+                <table class="table table-hover table-striped align-middle">
+                    <thead class="table-primary">
+                        <tr>
+                            <th>Sr No.</th>
+                            <th>Patient Name</th>
+                            <th>Scheme</th>
+                            <th>Enrollment Date</th>
+                            <th>Amount Claimed (₹)</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for enrollment in recent_enrollments %}
+                        <tr>
+                            <td><strong>{{ loop.index }}</strong></td>
+                            <td>{{ enrollment.name }}</td>
+                            <td>{{ enrollment.sname }}</td>
+                            <td>{{ enrollment.enroll_date }}</td>
+                            <td><strong class="text-success">₹{{ "%.2f"|format(enrollment.amt_claimed or 0) }}</strong></td>
+                            <td>
+                                <a href="{{ url_for('edit_enrollment', enrollment_id=enrollment.enrollment_id) }}" class="btn btn-sm btn-info">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </a>
+                                <form method="POST" action="{{ url_for('delete_enrollment', enrollment_id=enrollment.enrollment_id) }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this enrollment?');">
+                                    <button type="submit" class="btn btn-sm btn-danger">
+                                        <i class="bi bi-trash"></i> Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted py-4">No enrollments found</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- All Registered Patients table with row numbering -->
+        <section class="mb-5">
+            <h4 class="fw-bold mb-3 pb-2 border-bottom border-primary">
+                <i class="bi bi-list-ul"></i> All Registered Patients
+            </h4>
+            <div class="table-responsive">
+                <table class="table table-hover table-striped align-middle">
+                    <thead class="table-primary">
+                        <tr>
+                            <th> Sr No.</th>
+                          
+                            <th>Name</th>
+                            <th>Date of Birth</th>
+                            <th>Email</th>
+                            <th>Active Schemes</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for patient in all_patients %}
+                        <tr>
+                            <td><strong>{{ loop.index }}</strong></td>
+                            
+                            <td>{{ patient.name }}</td>
+                            <td>{{ patient.dob }}</td>
+                            <td>{{ patient.email or 'N/A' }}</td>
+                            <td><span class="badge bg-info">{{ patient.scheme_count }}</span></td>
+                            <td>
+                                <a href="{{ url_for('edit_patient', patient_id=patient.patient_id) }}" class="btn btn-sm btn-info">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </a>
+                                <form method="POST" action="{{ url_for('delete_patient', patient_id=patient.patient_id) }}" style="display:inline;" onsubmit="return confirm('Are you sure? This will delete all their enrollments too.');">
+                                    <button type="submit" class="btn btn-sm btn-danger">
+                                        <i class="bi bi-trash"></i> Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center text-muted py-4">No patients registered</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </section>
+</div>
+{% endblock %}

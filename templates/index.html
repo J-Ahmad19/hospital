@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Hospital Schemes Monitoring{% endblock %}
+
+{% block content %}
+<!-- Updated hero section with Bootstrap -->
+<div class="container-lg">
+    <section class="bg-primary text-white rounded-4 p-5 mb-5 text-center shadow-lg">
+        <h2 class="display-5 fw-bold mb-3">Government Health Schemes Monitor</h2>
+        <p class="fs-5 mb-4">Efficiently track and manage patient enrollments in government healthcare schemes</p>
+        <div class="d-flex gap-3 justify-content-center flex-wrap">
+            <a href="{{ url_for('add_patient') }}" class="btn btn-light btn-lg fw-bold">
+                <i class="bi bi-plus-circle"></i> Add New Patient
+            </a>
+            <a href="{{ url_for('admin') }}" class="btn btn-outline-light btn-lg fw-bold">
+                <i class="bi bi-graph-up"></i> View Analytics
+            </a>
+        </div>
+    </section>
+
+    <!-- Stats section with Bootstrap cards -->
+    <section class="mb-5">
+        <div class="row g-4 mb-5">
+            <div class="col-md-4">
+                <div class="card h-100 shadow border-0 rounded-4">
+                    <div class="card-body text-center">
+                        <div class="fs-1 mb-3">👥</div>
+                        <h5 class="card-title fw-bold">Total Patients</h5>
+                        <p class="fs-3 fw-bold text-primary mb-1">{{ total_patients }}</p>
+                        <p class="text-muted small">Registered in system</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 shadow border-0 rounded-4">
+                    <div class="card-body text-center">
+                        <div class="fs-1 mb-3">📋</div>
+                        <h5 class="card-title fw-bold">Active Schemes</h5>
+                        <p class="fs-3 fw-bold text-info mb-1">{{ total_schemes }}</p>
+                        <p class="text-muted small">Government schemes</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 shadow border-0 rounded-4">
+                    <div class="card-body text-center">
+                        <div class="fs-1 mb-3">💰</div>
+                        <h5 class="card-title fw-bold">Total Amount Claimed</h5>
+                        <p class="fs-3 fw-bold text-success mb-1">₹{{ "%.2f"|format(total_claimed) }}</p>
+                        <p class="text-muted small">Under all schemes</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features section with Bootstrap -->
+    <section class="mb-5">
+        <h2 class="display-6 fw-bold text-center mb-5">Key Features</h2>
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card h-100 shadow border-0 rounded-4 hover-shadow">
+                    <div class="card-body">
+                        <h5 class="card-title fw-bold mb-3">
+                            <i class="bi bi-pencil-square text-primary fs-4"></i> Patient Management
+                        </h5>
+                        <p class="card-text">Easy data entry form to add new patients and enroll them in government schemes</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100 shadow border-0 rounded-4 hover-shadow">
+                    <div class="card-body">
+                        <h5 class="card-title fw-bold mb-3">
+                            <i class="bi bi-graph-up text-success fs-4"></i> Analytics Dashboard
+                        </h5>
+                        <p class="card-text">View detailed analysis of scheme enrollments and financial statistics</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100 shadow border-0 rounded-4 hover-shadow">
+                    <div class="card-body">
+                        <h5 class="card-title fw-bold mb-3">
+                            <i class="bi bi-search text-info fs-4"></i> Comprehensive Tracking
+                        </h5>
+                        <p class="card-text">Monitor patient enrollments, scheme details, and claimed amounts at a glance</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100 shadow border-0 rounded-4 hover-shadow">
+                    <div class="card-body">
+                        <h5 class="card-title fw-bold mb-3">
+                            <i class="bi bi-lightning-charge text-warning fs-4"></i> Real-time Reporting
+                        </h5>
+                        <p class="card-text">Get up-to-date statistics and insights on scheme utilization</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
