@@ -1,130 +1,109 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
 from datetime import datetime
-import mysql.connector
-from mysql.connector import Error
 import os
 from dotenv import load_dotenv
-from urllib.parse import urlparse
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
+# ----------- Load env -----------
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-change-this')
 
-def get_db_config():
-    """Parse database configuration from DATABASE_URL or individual env vars"""
-    database_url = os.getenv('DATABASE_URL')
-    
-    if database_url:
-        # Parse URL format: mysql://user:password@host:port/database?ssl-mode=REQUIRED
-        parsed = urlparse(database_url)
-        return {
-            'host': parsed.hostname,
-            'user': parsed.username,
-            'password': parsed.password,
-            'database': parsed.path.lstrip('/'),
-            'port': parsed.port or 3306,
-            'ssl_disabled': False,
-            'autocommit': False
-        }
-    else:
-        # Fallback to individual environment variables
-        return {
-            'host': os.getenv('DB_HOST', 'localhost'),
-            'user': os.getenv('DB_USER', 'root'),
-            'password': os.getenv('DB_PASSWORD', ''),
-            'database': os.getenv('DB_NAME', 'hospital_schemes'),
-            'port': int(os.getenv('DB_PORT', 3306)),
-            'ssl_disabled': False,
-            'autocommit': False
-        }
+# ----------- Supabase Postgres params (Session Pooler) -----------
+PG_HOST = os.getenv("PG_HOST", "db.grwkcsknfbtxphpyygyr.supabase.co")
+PG_PORT = int(os.getenv("PG_PORT", "6543"))         # pooled port; use 5432 if you prefer direct
+PG_DB   = os.getenv("PG_DB", "postgres")
+PG_USER = os.getenv("PG_USER", "postgres")
+PG_PASS = os.getenv("PG_PASSWORD")                  # raw password; no URL-encoding needed
 
-DB_CONFIG = get_db_config()
+
 
 def get_db():
-    """Get database connection with DictCursor for named columns"""
     try:
-        conn = mysql.connector.connect(**DB_CONFIG)
+        conn = psycopg2.connect(
+            host=os.getenv("PG_HOST"),
+            port=os.getenv("PG_PORT", 5432),
+            dbname=os.getenv("PG_DB"),
+            user=os.getenv("PG_USER"),
+            password=os.getenv("PG_PASSWORD"),
+            sslmode="require",
+            connect_timeout=10,
+            cursor_factory=RealDictCursor,
+        )
         return conn
-    except Error as e:
-        print(f"Error connecting to MySQL: {e}")
+    except Exception as e:
+        print("=== Postgres connection failed ===")
+        print("Error:", e)
         return None
 
-def dict_from_cursor(cursor, row):
-    """Convert cursor row to dictionary"""
-    desc = cursor.description
-    if desc is None:
-        return {}
-    return dict(zip([col[0] for col in desc], row))
 
 def init_db():
-    """Initialize database tables"""
+    """Initialize database tables (Postgres syntax)."""
     conn = get_db()
     if not conn:
         print("Failed to connect to database")
         return
-    
-    cursor = conn.cursor()
-    
+
+    cur = conn.cursor()
     try:
-        cursor.execute('''
+        # Tables
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS scheme (
-                scheme_id INT AUTO_INCREMENT PRIMARY KEY,
-                sname VARCHAR(255) NOT NULL UNIQUE,
-                dscript TEXT,
+                scheme_id BIGSERIAL PRIMARY KEY,
+                sname     VARCHAR(255) NOT NULL UNIQUE,
+                dscript   TEXT,
                 start_date DATE NOT NULL
-            )
-        ''')
-        
-        cursor.execute('''
+            );
+        """)
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS patient (
-                patient_id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                dob DATE NOT NULL,
-                email VARCHAR(255),
-                address TEXT
-            )
-        ''')
-        
-        cursor.execute('''
+                patient_id BIGSERIAL PRIMARY KEY,
+                name       VARCHAR(255) NOT NULL,
+                dob        DATE NOT NULL,
+                email      VARCHAR(255),
+                address    TEXT
+            );
+        """)
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS patient_scheme_enrollment (
-                enrollment_id INT AUTO_INCREMENT PRIMARY KEY,
-                patient_id INT NOT NULL,
-                scheme_id INT NOT NULL,
-                enroll_date DATE NOT NULL,
-                amt_claimed DECIMAL(10, 2) DEFAULT 0,
-                FOREIGN KEY(patient_id) REFERENCES patient(patient_id) ON DELETE CASCADE,
-                FOREIGN KEY(scheme_id) REFERENCES scheme(scheme_id) ON DELETE CASCADE
-            )
-        ''')
-        
-        cursor.execute("SELECT COUNT(*) FROM scheme")
-        count = cursor.fetchone()[0]
-        
-        if count == 0:
-            print("Inserting sample schemes...")
-            cursor.execute(
-                "INSERT INTO scheme (sname, dscript, start_date) VALUES (%s, %s, %s)",
-                ('Ayushman Bharat', 'Health insurance scheme for poor and vulnerable families', '2018-09-23')
-            )
-            cursor.execute(
-                "INSERT INTO scheme (sname, dscript, start_date) VALUES (%s, %s, %s)",
-                ('PMJAY', 'Prime Ministers Scheme for cashless healthcare', '2018-09-23')
-            )
-            cursor.execute(
-                "INSERT INTO scheme (sname, dscript, start_date) VALUES (%s, %s, %s)",
-                ('RSBY', 'Rashtriya Swasthya Bima Yojana for unorganized workers', '2007-10-01')
-            )
-            conn.commit()
-            print("Sample schemes inserted successfully")
-        
+                enrollment_id BIGSERIAL PRIMARY KEY,
+                patient_id    BIGINT NOT NULL REFERENCES patient(patient_id) ON DELETE CASCADE,
+                scheme_id     BIGINT NOT NULL REFERENCES scheme(scheme_id) ON DELETE CASCADE,
+                enroll_date   DATE NOT NULL,
+                amt_claimed   NUMERIC(10,2) DEFAULT 0
+            );
+        """)
+
+        # Seed data
+        cur.execute("SELECT COUNT(*) AS c FROM scheme;")
+        count = cur.fetchone()["c"] or 0
+        if count > 0:
+            print(f"Found {count} existing schemes. Clearing and reinserting all schemes...")
+            cur.execute("TRUNCATE TABLE scheme RESTART IDENTITY CASCADE;")
+
+        schemes_to_insert = [
+            ('Ayushman Bharat', 'Health insurance scheme for poor and vulnerable families', '2018-09-23'),
+            ('PMJAY', 'Prime Ministers Scheme for cashless healthcare', '2018-09-23'),
+            ('RSBY', 'Rashtriya Swasthya Bima Yojana for unorganized workers', '2007-10-01'),
+            ('Atal Pension Yojana', 'Pension scheme for unorganized sector workers', '2015-05-09'),
+            ('National Digital Health Mission', 'Digital health ecosystem with unique health IDs', '2020-08-15'),
+            ('Sukanya Samriddhi Yojana', 'Savings scheme for girl child education and marriage', '2015-01-22'),
+            ('Pradhan Mantri Matru Vandana Yojana', 'Maternity benefit program for pregnant and lactating women', '2017-01-01')
+        ]
+        cur.executemany(
+            "INSERT INTO scheme (sname, dscript, start_date) VALUES (%s, %s, %s)",
+            schemes_to_insert
+        )
         conn.commit()
+        print("All 7 government schemes inserted successfully")
         print("Database initialized successfully")
-    except Error as e:
+    except Exception as e:
         print(f"Error initializing database: {e}")
         conn.rollback()
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
 
 # Initialize database on startup
@@ -132,40 +111,36 @@ init_db()
 
 @app.route('/')
 def home():
-    """Home page"""
     conn = get_db()
     if not conn:
         flash('Database connection failed', 'error')
         return render_template('index.html', total_patients=0, total_schemes=0, total_claimed=0)
-    
-    cursor = conn.cursor()
-    
+
+    cur = conn.cursor()
     try:
-        cursor.execute('SELECT COUNT(*) FROM patient')
-        total_patients = cursor.fetchone()[0]
-        
-        cursor.execute('SELECT COUNT(*) FROM scheme')
-        total_schemes = cursor.fetchone()[0]
-        
-        cursor.execute('SELECT SUM(amt_claimed) FROM patient_scheme_enrollment')
-        result = cursor.fetchone()
-        total_claimed = float(result[0]) if result[0] else 0
-    except Error as e:
+        cur.execute('SELECT COUNT(*) AS c FROM patient')
+        total_patients = cur.fetchone()['c']
+
+        cur.execute('SELECT COUNT(*) AS c FROM scheme')
+        total_schemes = cur.fetchone()['c']
+
+        cur.execute('SELECT COALESCE(SUM(amt_claimed),0) AS s FROM patient_scheme_enrollment')
+        total_claimed = float(cur.fetchone()['s'])
+    except Exception as e:
         print(f"Error fetching home stats: {e}")
         total_patients = total_schemes = 0
         total_claimed = 0
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
-    
-    return render_template('index.html', 
-                         total_patients=total_patients,
-                         total_schemes=total_schemes,
-                         total_claimed=total_claimed)
+
+    return render_template('index.html',
+                           total_patients=total_patients,
+                           total_schemes=total_schemes,
+                           total_claimed=total_claimed)
 
 @app.route('/add-patient', methods=['GET', 'POST'])
 def add_patient():
-    """Add new patient"""
     if request.method == 'POST':
         name = request.form.get('name')
         dob = request.form.get('dob')
@@ -174,327 +149,310 @@ def add_patient():
         scheme_id = request.form.get('scheme_id')
         enroll_date = request.form.get('enroll_date')
         amt_claimed = float(request.form.get('amt_claimed', 0))
-        
+
         conn = get_db()
         if not conn:
             flash('Database connection failed', 'error')
             return redirect(url_for('add_patient'))
-        
-        cursor = conn.cursor()
-        
+
+        cur = conn.cursor()
         try:
-            cursor.execute('''
+            cur.execute("""
                 INSERT INTO patient (name, dob, email, address)
-                VALUES (%s, %s, %s, %s)
-            ''', (name, dob, email, address))
-            
-            patient_id = cursor.lastrowid
-            
+                VALUES (%s, %s, %s, %s) RETURNING patient_id;
+            """, (name, dob, email, address))
+            patient_id = cur.fetchone()['patient_id']
+
             if scheme_id:
-                cursor.execute('''
+                cur.execute("""
                     INSERT INTO patient_scheme_enrollment (patient_id, scheme_id, enroll_date, amt_claimed)
-                    VALUES (%s, %s, %s, %s)
-                ''', (patient_id, scheme_id, enroll_date, amt_claimed))
-            
+                    VALUES (%s, %s, %s, %s);
+                """, (patient_id, scheme_id, enroll_date, amt_claimed))
+
             conn.commit()
             flash(f'Patient {name} added successfully!', 'success')
             return redirect(url_for('add_patient'))
-        except Error as e:
+        except Exception as e:
             conn.rollback()
             flash(f'Error adding patient: {str(e)}', 'error')
         finally:
-            cursor.close()
+            cur.close()
             conn.close()
-    
+
+    # GET: fetch schemes
     conn = get_db()
     if not conn:
         flash('Database connection failed', 'error')
         return render_template('add_patient.html', schemes=[])
-    
-    cursor = conn.cursor()
+
+    cur = conn.cursor()
     try:
-        cursor.execute('SELECT scheme_id, sname FROM scheme ORDER BY sname')
-        schemes = cursor.fetchall()
-        schemes = [{'scheme_id': s[0], 'sname': s[1]} for s in schemes]
-    except Error as e:
+        cur.execute('SELECT scheme_id, sname FROM scheme ORDER BY sname')
+        rows = cur.fetchall()
+        schemes = [{'scheme_id': r['scheme_id'], 'sname': r['sname']} for r in rows]
+    except Exception as e:
         print(f"Error fetching schemes: {e}")
         schemes = []
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
-    
+
     return render_template('add_patient.html', schemes=schemes)
 
 @app.route('/edit-patient/<int:patient_id>', methods=['GET', 'POST'])
 def edit_patient(patient_id):
-    """Edit patient details"""
     conn = get_db()
     if not conn:
         flash('Database connection failed', 'error')
         return redirect(url_for('admin'))
-    
-    cursor = conn.cursor()
-    
+    cur = conn.cursor()
+
     if request.method == 'POST':
         name = request.form.get('name')
         dob = request.form.get('dob')
         email = request.form.get('email')
         address = request.form.get('address')
-        
+
         try:
-            cursor.execute('''
-                UPDATE patient 
+            cur.execute("""
+                UPDATE patient
                 SET name = %s, dob = %s, email = %s, address = %s
                 WHERE patient_id = %s
-            ''', (name, dob, email, address, patient_id))
-            
+            """, (name, dob, email, address, patient_id))
             conn.commit()
             flash(f'Patient {name} updated successfully!', 'success')
             return redirect(url_for('admin'))
-        except Error as e:
+        except Exception as e:
             conn.rollback()
             flash(f'Error updating patient: {str(e)}', 'error')
         finally:
-            cursor.close()
+            cur.close()
             conn.close()
-        
         return redirect(url_for('admin'))
-    
+
     try:
-        cursor.execute('SELECT * FROM patient WHERE patient_id = %s', (patient_id,))
-        patient = cursor.fetchone()
-        if patient:
+        cur.execute('SELECT * FROM patient WHERE patient_id = %s', (patient_id,))
+        row = cur.fetchone()
+        patient = None
+        if row:
             patient = {
-                'patient_id': patient[0],
-                'name': patient[1],
-                'dob': patient[2],
-                'email': patient[3],
-                'address': patient[4]
+                'patient_id': row['patient_id'],
+                'name': row['name'],
+                'dob': row['dob'],
+                'email': row['email'],
+                'address': row['address']
             }
-    except Error as e:
+    except Exception as e:
         print(f"Error fetching patient: {e}")
         patient = None
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
-    
+
     if not patient:
         flash('Patient not found', 'error')
         return redirect(url_for('admin'))
-    
+
     return render_template('edit_patient.html', patient=patient)
 
 @app.route('/delete-patient/<int:patient_id>', methods=['POST'])
 def delete_patient(patient_id):
-    """Delete patient and their enrollments"""
     conn = get_db()
     if not conn:
         flash('Database connection failed', 'error')
         return redirect(url_for('admin'))
-    
-    cursor = conn.cursor()
-    
+    cur = conn.cursor()
     try:
-        cursor.execute('SELECT name FROM patient WHERE patient_id = %s', (patient_id,))
-        patient = cursor.fetchone()
-        
-        if patient:
-            patient_name = patient[0]
-            cursor.execute('DELETE FROM patient WHERE patient_id = %s', (patient_id,))
+        cur.execute('SELECT name FROM patient WHERE patient_id = %s', (patient_id,))
+        row = cur.fetchone()
+        if row:
+            patient_name = row['name']
+            cur.execute('DELETE FROM patient WHERE patient_id = %s', (patient_id,))
             conn.commit()
             flash(f'Patient {patient_name} deleted successfully!', 'success')
         else:
             flash('Patient not found', 'error')
-    except Error as e:
+    except Exception as e:
         conn.rollback()
         flash(f'Error deleting patient: {str(e)}', 'error')
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
-    
     return redirect(url_for('admin'))
 
 @app.route('/edit-enrollment/<int:enrollment_id>', methods=['GET', 'POST'])
 def edit_enrollment(enrollment_id):
-    """Edit patient scheme enrollment"""
     conn = get_db()
     if not conn:
         flash('Database connection failed', 'error')
         return redirect(url_for('admin'))
-    
-    cursor = conn.cursor()
-    
+    cur = conn.cursor()
+
     if request.method == 'POST':
         scheme_id = request.form.get('scheme_id')
         enroll_date = request.form.get('enroll_date')
         amt_claimed = float(request.form.get('amt_claimed', 0))
-        
         try:
-            cursor.execute('''
-                UPDATE patient_scheme_enrollment 
+            cur.execute("""
+                UPDATE patient_scheme_enrollment
                 SET scheme_id = %s, enroll_date = %s, amt_claimed = %s
                 WHERE enrollment_id = %s
-            ''', (scheme_id, enroll_date, amt_claimed, enrollment_id))
-            
+            """, (scheme_id, enroll_date, amt_claimed, enrollment_id))
             conn.commit()
             flash('Enrollment updated successfully!', 'success')
             return redirect(url_for('admin'))
-        except Error as e:
+        except Exception as e:
             conn.rollback()
             flash(f'Error updating enrollment: {str(e)}', 'error')
         finally:
-            cursor.close()
+            cur.close()
             conn.close()
-        
         return redirect(url_for('admin'))
-    
+
     try:
-        cursor.execute('''
-            SELECT pse.enrollment_id, pse.patient_id, pse.scheme_id, pse.enroll_date, 
-                   pse.amt_claimed, p.name, s.sname 
+        cur.execute("""
+            SELECT pse.enrollment_id, pse.patient_id, pse.scheme_id, pse.enroll_date,
+                   pse.amt_claimed, p.name, s.sname
             FROM patient_scheme_enrollment pse
             JOIN patient p ON pse.patient_id = p.patient_id
             JOIN scheme s ON pse.scheme_id = s.scheme_id
             WHERE pse.enrollment_id = %s
-        ''', (enrollment_id,))
-        enrollment = cursor.fetchone()
-        
-        if enrollment:
-            enrollment = {
-                'enrollment_id': enrollment[0],
-                'patient_id': enrollment[1],
-                'scheme_id': enrollment[2],
-                'enroll_date': enrollment[3],
-                'amt_claimed': float(enrollment[4]),
-                'patient_name': enrollment[5],
-                'sname': enrollment[6]
-            }
-        
-        cursor.execute('SELECT scheme_id, sname FROM scheme ORDER BY sname')
-        schemes = cursor.fetchall()
-        schemes = [{'scheme_id': s[0], 'sname': s[1]} for s in schemes]
-    except Error as e:
-        print(f"Error fetching enrollment: {e}")
+        """, (enrollment_id,))
+        e = cur.fetchone()
+
+        cur.execute('SELECT scheme_id, sname FROM scheme ORDER BY sname')
+        rows = cur.fetchall()
+        schemes = [{'scheme_id': r['scheme_id'], 'sname': r['sname']} for r in rows]
+
         enrollment = None
-        schemes = []
+        if e:
+            enrollment = {
+                'enrollment_id': e['enrollment_id'],
+                'patient_id': e['patient_id'],
+                'scheme_id': e['scheme_id'],
+                'enroll_date': e['enroll_date'],
+                'amt_claimed': float(e['amt_claimed']),
+                'patient_name': e['name'],
+                'sname': e['sname']
+            }
+    except Exception as ex:
+        print(f"Error fetching enrollment: {ex}")
+        enrollment, schemes = None, []
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
-    
+
     if not enrollment:
         flash('Enrollment not found', 'error')
         return redirect(url_for('admin'))
-    
+
     return render_template('edit_enrollment.html', enrollment=enrollment, schemes=schemes)
 
 @app.route('/delete-enrollment/<int:enrollment_id>', methods=['POST'])
 def delete_enrollment(enrollment_id):
-    """Delete patient scheme enrollment"""
     conn = get_db()
     if not conn:
         flash('Database connection failed', 'error')
         return redirect(url_for('admin'))
-    
-    cursor = conn.cursor()
-    
+    cur = conn.cursor()
     try:
-        cursor.execute('DELETE FROM patient_scheme_enrollment WHERE enrollment_id = %s', (enrollment_id,))
+        cur.execute('DELETE FROM patient_scheme_enrollment WHERE enrollment_id = %s', (enrollment_id,))
         conn.commit()
         flash('Enrollment deleted successfully!', 'success')
-    except Error as e:
+    except Exception as e:
         conn.rollback()
         flash(f'Error deleting enrollment: {str(e)}', 'error')
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
-    
     return redirect(url_for('admin'))
 
 @app.route('/admin')
 def admin():
-    """Admin dashboard for analysis"""
     conn = get_db()
     if not conn:
         flash('Database connection failed', 'error')
-        return render_template('admin.html', 
-                             total_patients=0, total_schemes=0, total_claimed=0,
-                             scheme_stats=[], recent_enrollments=[], all_patients=[])
-    
-    cursor = conn.cursor()
-    
+        return render_template('admin.html',
+                               total_patients=0, total_schemes=0, total_claimed=0,
+                               scheme_stats=[], recent_enrollments=[], all_patients=[])
+    cur = conn.cursor()
     try:
-        # Total statistics
-        cursor.execute('SELECT COUNT(*) FROM patient')
-        total_patients = cursor.fetchone()[0]
-        
-        cursor.execute('SELECT COUNT(*) FROM scheme')
-        total_schemes = cursor.fetchone()[0]
-        
-        cursor.execute('SELECT SUM(amt_claimed) FROM patient_scheme_enrollment')
-        result = cursor.fetchone()
-        total_claimed = float(result[0]) if result[0] else 0
-        
-        cursor.execute('''
-            SELECT s.scheme_id, s.sname, COUNT(pse.enrollment_id) as enrollment_count, 
-                   SUM(pse.amt_claimed) as total_amount
+        cur.execute('SELECT COUNT(*) AS c FROM patient')
+        total_patients = cur.fetchone()['c']
+
+        cur.execute('SELECT COUNT(*) AS c FROM scheme')
+        total_schemes = cur.fetchone()['c']
+
+        cur.execute('SELECT COALESCE(SUM(amt_claimed),0) AS s FROM patient_scheme_enrollment')
+        total_claimed = float(cur.fetchone()['s'])
+
+        cur.execute("""
+            SELECT s.scheme_id, s.sname,
+                   COUNT(pse.enrollment_id) AS enrollment_count,
+                   COALESCE(SUM(pse.amt_claimed),0) AS total_amount
             FROM scheme s
             LEFT JOIN patient_scheme_enrollment pse ON s.scheme_id = pse.scheme_id
             GROUP BY s.scheme_id, s.sname
             ORDER BY s.sname
-        ''')
-        scheme_stats_raw = cursor.fetchall()
-        scheme_stats = [{'scheme_id': s[0], 'sname': s[1], 'enrollment_count': s[2] or 0, 'total_amount': float(s[3] or 0)} for s in scheme_stats_raw]
-        
-        cursor.execute('''
+        """)
+        scheme_stats_raw = cur.fetchall()
+        scheme_stats = [
+            {'scheme_id': s['scheme_id'], 'sname': s['sname'],
+             'enrollment_count': s['enrollment_count'] or 0,
+             'total_amount': float(s['total_amount'] or 0)}
+            for s in scheme_stats_raw
+        ]
+
+        cur.execute("""
             SELECT pse.enrollment_id, p.patient_id, p.name, s.scheme_id, s.sname, pse.enroll_date, pse.amt_claimed
             FROM patient_scheme_enrollment pse
             JOIN patient p ON pse.patient_id = p.patient_id
             JOIN scheme s ON pse.scheme_id = s.scheme_id
             ORDER BY pse.enroll_date DESC
             LIMIT 10
-        ''')
-        recent_enrollments_raw = cursor.fetchall()
+        """)
+        recent_enrollments_raw = cur.fetchall()
         recent_enrollments = [
             {
-                'enrollment_id': e[0],
-                'patient_id': e[1],
-                'name': e[2],
-                'scheme_id': e[3],
-                'sname': e[4],
-                'enroll_date': str(e[5]),
-                'amt_claimed': float(e[6])
-            }
-            for e in recent_enrollments_raw
+                'enrollment_id': e['enrollment_id'],
+                'patient_id': e['patient_id'],
+                'name': e['name'],
+                'scheme_id': e['scheme_id'],
+                'sname': e['sname'],
+                'enroll_date': str(e['enroll_date']),
+                'amt_claimed': float(e['amt_claimed'])
+            } for e in recent_enrollments_raw
         ]
-        
-        cursor.execute('''
-            SELECT p.patient_id, p.name, p.dob, p.email, COUNT(pse.enrollment_id) as scheme_count
+
+        cur.execute("""
+            SELECT p.patient_id, p.name, p.dob, p.email, COUNT(pse.enrollment_id) AS scheme_count
             FROM patient p
             LEFT JOIN patient_scheme_enrollment pse ON p.patient_id = pse.patient_id
             GROUP BY p.patient_id, p.name, p.dob, p.email
             ORDER BY p.patient_id DESC
-        ''')
-        all_patients_raw = cursor.fetchall()
+        """)
+        all_patients_raw = cur.fetchall()
         all_patients = [
-            {'patient_id': p[0], 'name': p[1], 'dob': str(p[2]), 'email': p[3], 'scheme_count': p[4]}
+            {'patient_id': p['patient_id'], 'name': p['name'], 'dob': str(p['dob']),
+             'email': p['email'], 'scheme_count': p['scheme_count']}
             for p in all_patients_raw
         ]
-    except Error as e:
+    except Exception as e:
         print(f"Error fetching admin data: {e}")
         total_patients = total_schemes = 0
         total_claimed = 0
         scheme_stats = recent_enrollments = all_patients = []
     finally:
-        cursor.close()
+        cur.close()
         conn.close()
-    
-    return render_template('admin.html', 
-                         total_patients=total_patients,
-                         total_schemes=total_schemes,
-                         total_claimed=total_claimed,
-                         scheme_stats=scheme_stats,
-                         recent_enrollments=recent_enrollments,
-                         all_patients=all_patients)
+
+    return render_template('admin.html',
+                           total_patients=total_patients,
+                           total_schemes=total_schemes,
+                           total_claimed=total_claimed,
+                           scheme_stats=scheme_stats,
+                           recent_enrollments=recent_enrollments,
+                           all_patients=all_patients)
 
 if __name__ == '__main__':
     app.run(debug=True)
