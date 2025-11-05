@@ -4,21 +4,42 @@ import mysql.connector
 from mysql.connector import Error
 import os
 from dotenv import load_dotenv
+from urllib.parse import urlparse
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-change-this')
 
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'localhost'),
-    'user': os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', ''),
-    'database': os.getenv('DB_NAME', 'hospital_schemes'),
-    'port': int(os.getenv('DB_PORT', 3306)),
-    'ssl_disabled': False,
-    'autocommit': False
-}
+def get_db_config():
+    """Parse database configuration from DATABASE_URL or individual env vars"""
+    database_url = os.getenv('DATABASE_URL')
+    
+    if database_url:
+        # Parse URL format: mysql://user:password@host:port/database?ssl-mode=REQUIRED
+        parsed = urlparse(database_url)
+        return {
+            'host': parsed.hostname,
+            'user': parsed.username,
+            'password': parsed.password,
+            'database': parsed.path.lstrip('/'),
+            'port': parsed.port or 3306,
+            'ssl_disabled': False,
+            'autocommit': False
+        }
+    else:
+        # Fallback to individual environment variables
+        return {
+            'host': os.getenv('DB_HOST', 'localhost'),
+            'user': os.getenv('DB_USER', 'root'),
+            'password': os.getenv('DB_PASSWORD', ''),
+            'database': os.getenv('DB_NAME', 'hospital_schemes'),
+            'port': int(os.getenv('DB_PORT', 3306)),
+            'ssl_disabled': False,
+            'autocommit': False
+        }
+
+DB_CONFIG = get_db_config()
 
 def get_db():
     """Get database connection with DictCursor for named columns"""
